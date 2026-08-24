@@ -277,7 +277,7 @@ public class CaseRepository {
     public List<String> listCases(String statusFilter, Integer officerFilter) throws SQLException {
         String sql = "SELECT oc.case_id, oc.client_id, oc.opened_date, oc.product_type, oc.case_status, " +
                 "oc.due_date, oc.assigned_officer_id, co.full_name AS officer_name, " +
-                "c.full_name AS client_name, c.client_type " +
+                "c.full_name AS client_name, c.client_type, c.status AS client_status " +
                 "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
                 "LEFT JOIN compliance_officer co ON oc.assigned_officer_id = co.officer_id";
 
@@ -313,6 +313,7 @@ public class CaseRepository {
                             + "\"client_id\":" + rs.getInt("client_id") + ","
                             + "\"client_name\":\"" + DatabaseConnection.escape(rs.getString("client_name")) + "\","
                             + "\"client_type\":\"" + DatabaseConnection.escape(rs.getString("client_type")) + "\","
+                            + "\"client_status\":\"" + DatabaseConnection.escape(rs.getString("client_status")) + "\","
                             + "\"product_type\":\"" + DatabaseConnection.escape(rs.getString("product_type")) + "\","
                             + "\"case_status\":\"" + DatabaseConnection.escape(rs.getString("case_status")) + "\","
                             + "\"opened_date\":\"" + rs.getString("opened_date") + "\","
@@ -358,7 +359,7 @@ public class CaseRepository {
         String caseSql = "SELECT oc.case_id, oc.client_id, oc.opened_date, oc.product_type, oc.case_status, " +
                 "oc.due_date, oc.completed_date, oc.rejection_reason, oc.assigned_officer_id, co.full_name AS officer_name, "
                 +
-                "c.full_name AS client_name, c.client_type, c.date_of_birth, c.country_of_birth, c.nationality, " +
+                "c.full_name AS client_name, c.client_type, c.status AS client_status, c.date_of_birth, c.country_of_birth, c.nationality, " +
                 "c.tax_residency, c.occupation, c.employer, c.main_source_of_funds, c.annual_income_band " +
                 "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
                 "LEFT JOIN compliance_officer co ON oc.assigned_officer_id = co.officer_id " +
@@ -400,6 +401,8 @@ public class CaseRepository {
                             .append("\",")
                             .append("\"client_type\":\"").append(DatabaseConnection.escape(rs.getString("client_type")))
                             .append("\",")
+                            .append("\"client_status\":\"")
+                            .append(DatabaseConnection.escape(rs.getString("client_status"))).append("\",")
                             .append("\"product_type\":\"")
                             .append(DatabaseConnection.escape(rs.getString("product_type"))).append("\",")
                             .append("\"case_status\":\"").append(DatabaseConnection.escape(rs.getString("case_status")))

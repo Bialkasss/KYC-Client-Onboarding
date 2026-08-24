@@ -8,10 +8,8 @@ import DocumentViewModal from '../components/DocumentViewModal';
 
 const NEXT_STATUS_OPTIONS = [
   'OPEN',
-  'AWAITING_DOCUMENTS',
-  'IN_REVIEW',
-  'APPROVED',
-  'REJECTED',
+  'PENDING',
+  'CLOSED',
 ];
 
 const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH'];
@@ -58,19 +56,19 @@ export default function CaseDetailPage() {
 
   const submittedDocTypes = caseData.documents.map((d) => d.doc_type);
   const missingDocs = getMissingDocuments(caseData.client_type, submittedDocTypes);
-  const isClosed = caseData.case_status === 'CLOSED' || caseData.case_status === 'REJECTED' || caseData.case_status === 'APPROVED';
+  const isClosed = caseData.case_status === 'CLOSED';
 
   const allDocumentsVerified = caseData.documents.length > 0 && caseData.documents.every((d) => d.verified);
   const documentsComplete = missingDocs.length === 0 && allDocumentsVerified;
   const hasRiskClassification = !!caseData.risk_classification;
   const canCloseCase = documentsComplete;
-  const canApproveOrReject = documentsComplete && hasRiskClassification;
+  const canClose = documentsComplete && hasRiskClassification;
 
   const handleStatusChange = async (e) => {
     const newStatus = e.target.value;
-    if ((newStatus === 'APPROVED') && !canApproveOrReject) {
+    if (newStatus === 'CLOSED' && !canClose) {
       setStatusUpdateError(
-        `This case must have all required documents verified and a risk classification before it can be ${newStatus.toLowerCase()}.`
+        `This case must have all required documents verified and a risk classification before it can be closed.`
       );
       return;
     }
@@ -139,6 +137,12 @@ export default function CaseDetailPage() {
               {caseData.case_status}
             </span>
           </dd>
+          <dt>Client status</dt>
+          <dd>
+            <span className={`status-badge status-${caseData.client_status.toLowerCase()}`}>
+              {caseData.client_status}
+            </span>
+          </dd>
           <dt>Assigned officer</dt>
           <dd>{caseData.officer_name || 'Unassigned'}</dd>
           <dt>Opened</dt>
@@ -159,7 +163,7 @@ export default function CaseDetailPage() {
           Status
           <select value={caseData.case_status} onChange={handleStatusChange} disabled={isClosed}>
             {NEXT_STATUS_OPTIONS.map((s) => {
-              const blocked = (s === 'APPROVED') && !canApproveOrReject;
+              const blocked = s === 'CLOSED' && !canClose;
               return (
                 <option key={s} value={s} disabled={blocked}>
                   {s}
@@ -169,9 +173,9 @@ export default function CaseDetailPage() {
             })}
           </select>
         </label>
-        {!isClosed && !canApproveOrReject && (
+        {!isClosed && !canClose && (
           <p className="hint">
-            Approving requires all required documents to be submitted and verified,
+            Closing requires all required documents to be submitted and verified,
             and a risk classification on record.
           </p>
         )}

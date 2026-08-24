@@ -5,19 +5,17 @@ import AssignOfficerModal from '../components/AssignOfficerModal';
 import OpenCaseModal from '../components/OpenCaseModal';
 import CaseFilters, { matchesDueDateFilter, sortCasesByDueDate } from '../components/CaseFilters';
 
-const PENDING_STATUSES = ['AWAITING_DOCUMENTS', 'IN_REVIEW'];
-const CLOSED_STATUSES = ['APPROVED', 'REJECTED'];
 const DUE_SOON_DAYS = 30;
 
 function statusRowClass(status) {
   if (status === 'OPEN') return 'row-open';
-  if (PENDING_STATUSES.includes(status)) return 'row-pending';
-  if (CLOSED_STATUSES.includes(status)) return 'row-closed';
+  if (status === 'PENDING') return 'row-pending';
+  if (status === 'CLOSED') return 'row-closed';
   return '';
 }
 
 function dueDateClass(dueDate, status) {
-  if (!dueDate || CLOSED_STATUSES.includes(status)) return '';
+  if (!dueDate || status === 'CLOSED') return '';
   const daysLeft = Math.ceil((new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24));
   return daysLeft <= DUE_SOON_DAYS ? 'due-date-soon' : '';
 }
@@ -30,6 +28,7 @@ export default function AdminHomePage() {
   const [assignError, setAssignError] = useState(null);
   const [activeCase, setActiveCase] = useState(null);
   const [selectedStatuses, setSelectedStatuses] = useState([]);
+  const [selectedClientStatuses, setSelectedClientStatuses] = useState([]);
   const [dueDateFilter, setDueDateFilter] = useState('all');
   const [dueDateSort, setDueDateSort] = useState('none');
   const [showOpenCaseModal, setShowOpenCaseModal] = useState(false);
@@ -74,6 +73,12 @@ export default function AdminHomePage() {
     );
   };
 
+  const toggleClientStatus = (status) => {
+    setSelectedClientStatuses((prev) =>
+      prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]
+    );
+  };
+
   const handleCaseOpened = () => {
     api.getCases().then(setCases).catch((err) => setError(err.message));
   };
@@ -84,11 +89,12 @@ export default function AdminHomePage() {
         cases.filter(
           (c) =>
             (selectedStatuses.length === 0 || selectedStatuses.includes(c.case_status)) &&
+            (selectedClientStatuses.length === 0 || selectedClientStatuses.includes(c.client_status)) &&
             matchesDueDateFilter(c.due_date, dueDateFilter)
         ),
         dueDateSort
       ),
-    [cases, selectedStatuses, dueDateFilter, dueDateSort]
+    [cases, selectedStatuses, selectedClientStatuses, dueDateFilter, dueDateSort]
   );
 
   if (loading) return <div className="page">Loading all cases...</div>;
@@ -106,6 +112,8 @@ export default function AdminHomePage() {
       <CaseFilters
         selectedStatuses={selectedStatuses}
         onToggleStatus={toggleStatus}
+        selectedClientStatuses={selectedClientStatuses}
+        onToggleClientStatus={toggleClientStatus}
         dueDateFilter={dueDateFilter}
         onDueDateFilterChange={setDueDateFilter}
         dueDateSort={dueDateSort}
@@ -118,7 +126,8 @@ export default function AdminHomePage() {
             <th>Case ID</th>
             <th>Client</th>
             <th>Product</th>
-            <th>Status</th>
+            <th>Case Status</th>
+            <th>Client Status</th>
             <th>Due Date</th>
             <th>Assigned Officer</th>
             <th></th>
@@ -127,7 +136,7 @@ export default function AdminHomePage() {
         <tbody>
           {visibleCases.length === 0 && (
             <tr>
-              <td colSpan={7}>No cases match the selected filters.</td>
+              <td colSpan={8}>No cases match the selected filters.</td>
             </tr>
           )}
           {visibleCases.map((c) => (
@@ -138,6 +147,11 @@ export default function AdminHomePage() {
               <td>
                 <span className={`status-badge status-${c.case_status.toLowerCase()}`}>
                   {c.case_status}
+                </span>
+              </td>
+              <td>
+                <span className={`status-badge status-${c.client_status.toLowerCase()}`}>
+                  {c.client_status}
                 </span>
               </td>
               <td className={dueDateClass(c.due_date, c.case_status)}>{c.due_date || '—'}</td>

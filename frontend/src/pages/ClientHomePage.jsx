@@ -9,6 +9,7 @@ export default function ClientHomePage() {
   const { user } = useAuth();
   const [caseData, setCaseData] = useState(null);
   const [clientType, setClientType] = useState(null);
+  const [clientStatus, setClientStatus] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitDocType, setSubmitDocType] = useState(null);
@@ -24,11 +25,13 @@ export default function ClientHomePage() {
       if (!myCase) {
         setCaseData(null);
         setClientType(client.client_type);
+        setClientStatus(client.status);
         return;
       }
       const fullCase = await api.getCase(myCase.case_id);
       setCaseData(fullCase);
       setClientType(client.client_type);
+      setClientStatus(client.status);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -50,6 +53,16 @@ export default function ClientHomePage() {
     return (
       <div className="page">
         <h1>Welcome, {welcomeName}</h1>
+        <section className="card">
+          <dl className="detail-grid">
+            <dt>Client status</dt>
+            <dd>
+              <span className={`status-badge status-${clientStatus.toLowerCase()}`}>
+                {clientStatus}
+              </span>
+            </dd>
+          </dl>
+        </section>
         <p>You don't have an onboarding case yet.</p>
         <ContactSection />
       </div>
@@ -68,10 +81,16 @@ export default function ClientHomePage() {
         <dl className="detail-grid">
           <dt>Product</dt>
           <dd>{caseData.product_type}</dd>
-          <dt>Status</dt>
+          <dt>Case status</dt>
           <dd>
             <span className={`status-badge status-${caseData.case_status.toLowerCase()}`}>
               {caseData.case_status}
+            </span>
+          </dd>
+          <dt>Client status</dt>
+          <dd>
+            <span className={`status-badge status-${clientStatus.toLowerCase()}`}>
+              {clientStatus}
             </span>
           </dd>
           <dt>Opened</dt>

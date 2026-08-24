@@ -1,8 +1,13 @@
 export const CASE_STATUSES = [
   { value: 'OPEN', label: 'Open', className: 'status-open' },
-  { value: 'AWAITING_DOCUMENTS', label: 'Awaiting Documents', className: 'status-awaiting_documents' },
-  { value: 'IN_REVIEW', label: 'In Review', className: 'status-in_review' },
+  { value: 'PENDING', label: 'Pending', className: 'status-pending' },
+  { value: 'CLOSED', label: 'Closed', className: 'status-closed' },
+];
+
+export const CLIENT_STATUSES = [
+  { value: 'PENDING', label: 'Pending', className: 'status-pending' },
   { value: 'APPROVED', label: 'Approved', className: 'status-approved' },
+  { value: 'SUSPENDED', label: 'Suspended', className: 'status-suspended' },
   { value: 'REJECTED', label: 'Rejected', className: 'status-rejected' },
 ];
 
@@ -39,6 +44,8 @@ export function sortCasesByDueDate(cases, direction) {
 export default function CaseFilters({
   selectedStatuses,
   onToggleStatus,
+  selectedClientStatuses,
+  onToggleClientStatus,
   dueDateFilter,
   onDueDateFilterChange,
   dueDateSort,
@@ -47,7 +54,7 @@ export default function CaseFilters({
   return (
     <div className="case-filters">
       <div className="filter-group">
-        <span className="filter-label">Status</span>
+        <span className="filter-label">Case status</span>
         <div className="filter-buttons">
           {CASE_STATUSES.map((s) => (
             <button
@@ -63,6 +70,26 @@ export default function CaseFilters({
           ))}
         </div>
       </div>
+
+      {onToggleClientStatus && (
+        <div className="filter-group">
+          <span className="filter-label">Client status</span>
+          <div className="filter-buttons">
+            {CLIENT_STATUSES.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                className={`status-filter-button ${s.className} ${
+                  selectedClientStatuses.includes(s.value) ? 'active' : ''
+                }`}
+                onClick={() => onToggleClientStatus(s.value)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="filter-group">
         <span className="filter-label">Due date</span>
