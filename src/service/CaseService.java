@@ -22,6 +22,7 @@ public class CaseService {
     private final CaseRepository caseRepository;
     private final DocumentChecklistService documentChecklistService;
     private final RiskClassificationRepository riskClassificationRepository;
+    private final MLPredictionService mlPredictionService;
 
     private static final Map<String, Set<String>> ALLOWED_TRANSITIONS = Map.of(
             "OPEN", Set.of("AWAITING_DOCUMENTS"),
@@ -43,6 +44,7 @@ public class CaseService {
         this.caseRepository = caseRepository;
         this.documentChecklistService = documentChecklistService;
         this.riskClassificationRepository = riskClassificationRepository;
+        this.mlPredictionService = new MLPredictionService(caseRepository);
     }
 
     /**
@@ -128,7 +130,8 @@ public class CaseService {
     }
 
     /**
-     * Uploads a document entry for a case.
+     * Uploads a document entry for a case, then re-runs the ML approval
+     * prediction (best-effort) now that the document mix has changed.
      *
      * @param caseId    target case id
      * @param docTypeId document type id
@@ -136,11 +139,14 @@ public class CaseService {
      * @throws SQLException when persistence fails
      */
     public int uploadDocument(int caseId, int docTypeId) throws SQLException {
-        return caseRepository.uploadDocument(caseId, docTypeId);
+        int docId = caseRepository.uploadDocument(caseId, docTypeId);
+        mlPredictionService.predictAndSave(caseId);
+        return docId;
     }
 
     /**
-     * Verifies a document belonging to a case.
+     * Verifies a document belonging to a case, then re-runs the ML approval
+     * prediction (best-effort) now that verification status has changed.
      *
      * @param caseId owning case id
      * @param docId  document id
@@ -148,7 +154,11 @@ public class CaseService {
      * @throws SQLException when persistence fails
      */
     public boolean verifyDocument(int caseId, int docId) throws SQLException {
-        return caseRepository.verifyDocument(caseId, docId);
+        boolean verified = caseRepository.verifyDocument(caseId, docId);
+        if (verified) {
+            mlPredictionService.predictAndSave(caseId);
+        }
+        return verified;
     }
 
     /**

@@ -359,6 +359,7 @@ public class CaseRepository {
         String caseSql = "SELECT oc.case_id, oc.client_id, oc.opened_date, oc.product_type, oc.case_status, " +
                 "oc.due_date, oc.completed_date, oc.rejection_reason, oc.assigned_officer_id, co.full_name AS officer_name, "
                 +
+                "oc.ml_prediction, oc.ml_approval_probability, oc.ml_recommendations, oc.ml_predicted_at, " +
                 "c.full_name AS client_name, c.client_type, c.status AS client_status, c.date_of_birth, c.country_of_birth, c.nationality, " +
                 "c.tax_residency, c.occupation, c.employer, c.main_source_of_funds, c.annual_income_band " +
                 "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
@@ -432,7 +433,19 @@ public class CaseRepository {
                             .append(DatabaseConnection.jsonStringOrNull(rs.getString("main_source_of_funds")))
                             .append(",")
                             .append("\"annual_income_band\":")
-                            .append(DatabaseConnection.jsonStringOrNull(rs.getString("annual_income_band")));
+                            .append(DatabaseConnection.jsonStringOrNull(rs.getString("annual_income_band")))
+                            .append(",")
+                            .append("\"ml_prediction\":")
+                            .append(DatabaseConnection.jsonStringOrNull(rs.getString("ml_prediction"))).append(",")
+                            .append("\"ml_approval_probability\":")
+                            .append(rs.getObject("ml_approval_probability") == null ? "null"
+                                    : rs.getBigDecimal("ml_approval_probability").toPlainString())
+                            .append(",")
+                            .append("\"ml_recommendations\":")
+                            .append(DatabaseConnection.rawJsonOrNull(rs.getString("ml_recommendations")))
+                            .append(",")
+                            .append("\"ml_predicted_at\":")
+                            .append(DatabaseConnection.jsonStringOrNull(rs.getString("ml_predicted_at")));
                 }
             }
 
@@ -498,6 +511,119 @@ public class CaseRepository {
             json.append(",\"risk_classification\":").append(riskJson == null ? "null" : riskJson);
             json.append("}");
             return json.toString();
+        }
+    }
+
+    /** Raw case/client/document attributes needed to run the ML approval-prediction model. */
+    public static class MlFeatures {
+        public String clientType;
+        public String nationality;
+        public String jurisdictionRisk;
+        public int age;
+        public String annualIncomeBand;
+        public String mainSourceOfFunds;
+        public boolean isPep;
+        public int adverseMediaHits;
+        public boolean isCrossBorder;
+        public String productType;
+        public int totalDocsSubmitted;
+        public int verifiedDocsCount;
+        public int expiredDocsCount;
+        public int hasUnverifiedDocs;
+    }
+
+    /**
+     * Gathers the case/client/document attributes required to run the ML
+     * approval-prediction model for a case.
+     *
+     * @param caseId target case id
+     * @return populated feature set, or null when the case does not exist
+     * @throws SQLException when a lookup fails
+     */
+    public MlFeatures getMlFeatures(int caseId) throws SQLException {
+        String sql = "SELECT oc.product_type, oc.jurisdiction_risk, " +
+                "c.client_type, c.nationality, c.tax_residency, c.date_of_birth, c.main_source_of_funds, " +
+                "c.annual_income_band, c.is_pep, c.adverse_media_hits " +
+                "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
+                "WHERE oc.case_id = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, caseId);
+            MlFeatures features = new MlFeatures();
+            String taxResidency;
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                features.productType = rs.getString("product_type");
+                features.jurisdictionRisk = rs.getString("jurisdiction_risk");
+                features.clientType = rs.getString("client_type");
+                features.nationality = rs.getString("nationality");
+                taxResidency = rs.getString("tax_residency");
+                features.mainSourceOfFunds = rs.getString("main_source_of_funds");
+                features.annualIncomeBand = rs.getString("annual_income_band");
+                features.isPep = rs.getBoolean("is_pep");
+                features.adverseMediaHits = rs.getInt("adverse_media_hits");
+                LocalDate dob = rs.getDate("date_of_birth").toLocalDate();
+                features.age = (int) ChronoUnit.YEARS.between(dob, LocalDate.now());
+            }
+
+            String addressCountry = null;
+            String addressSql = "SELECT country FROM client_address WHERE client_id = " +
+                    "(SELECT client_id FROM onboarding_case WHERE case_id = ?) " +
+                    "AND address_type = 'REGISTERED' LIMIT 1";
+            try (PreparedStatement addrPs = conn.prepareStatement(addressSql)) {
+                addrPs.setInt(1, caseId);
+                try (ResultSet rs = addrPs.executeQuery()) {
+                    if (rs.next()) {
+                        addressCountry = rs.getString("country");
+                    }
+                }
+            }
+            features.isCrossBorder = addressCountry != null && !addressCountry.equalsIgnoreCase(taxResidency);
+
+            String docSql = "SELECT COUNT(*) AS total, " +
+                    "SUM(CASE WHEN verified_flag = true THEN 1 ELSE 0 END) AS verified, " +
+                    "SUM(CASE WHEN expiry_date IS NOT NULL AND expiry_date < CURDATE() THEN 1 ELSE 0 END) AS expired, " +
+                    "SUM(CASE WHEN verified_flag = false THEN 1 ELSE 0 END) AS unverified " +
+                    "FROM document WHERE case_id = ?";
+            try (PreparedStatement docPs = conn.prepareStatement(docSql)) {
+                docPs.setInt(1, caseId);
+                try (ResultSet rs = docPs.executeQuery()) {
+                    if (rs.next()) {
+                        features.totalDocsSubmitted = rs.getInt("total");
+                        features.verifiedDocsCount = rs.getInt("verified");
+                        features.expiredDocsCount = rs.getInt("expired");
+                        features.hasUnverifiedDocs = rs.getInt("unverified") > 0 ? 1 : 0;
+                    }
+                }
+            }
+            return features;
+        }
+    }
+
+    /**
+     * Persists the latest ML approval prediction for a case.
+     *
+     * @param caseId          target case id
+     * @param decision        predicted decision, "APPROVED" or "REJECTED"
+     * @param probability     predicted probability of approval, 0-1
+     * @param recommendations JSON array of DiCE counterfactual suggestions
+     *                        (only meaningful when decision is "REJECTED"), or null
+     * @throws SQLException when persistence fails
+     */
+    public void saveMlPrediction(int caseId, String decision, double probability, String recommendations)
+            throws SQLException {
+        String sql = "UPDATE onboarding_case SET ml_prediction = ?, ml_approval_probability = ?, " +
+                "ml_recommendations = ?, ml_predicted_at = CURRENT_TIMESTAMP WHERE case_id = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, decision);
+            ps.setDouble(2, probability);
+            ps.setString(3, recommendations);
+            ps.setInt(4, caseId);
+            ps.executeUpdate();
+            logger.info("ML prediction saved: caseId={} decision={} probability={}", caseId, decision, probability);
         }
     }
 }

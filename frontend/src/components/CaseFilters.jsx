@@ -1,13 +1,13 @@
 export const CASE_STATUSES = [
   { value: 'OPEN', label: 'Open', className: 'status-open' },
-  { value: 'PENDING', label: 'Pending', className: 'status-pending' },
+  { value: 'PENDING_DOCUMENTS', label: 'Pending Documents', className: 'status-pending' },
+  { value: 'IN_REVIEW', label: 'In Review', className: 'status-pending' },
   { value: 'CLOSED', label: 'Closed', className: 'status-closed' },
 ];
 
 export const CLIENT_STATUSES = [
-  { value: 'PENDING', label: 'Pending', className: 'status-pending' },
   { value: 'APPROVED', label: 'Approved', className: 'status-approved' },
-  { value: 'SUSPENDED', label: 'Suspended', className: 'status-suspended' },
+  { value: 'PENDING_REVIEW', label: 'Pending Review', className: 'status-pending' },
   { value: 'REJECTED', label: 'Rejected', className: 'status-rejected' },
 ];
 

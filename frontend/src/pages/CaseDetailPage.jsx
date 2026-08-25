@@ -14,6 +14,13 @@ const NEXT_STATUS_OPTIONS = [
 
 const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH'];
 
+const RECOMMENDATION_LABELS = {
+  verified_docs_count: 'Verified documents count',
+  expired_docs_count: 'Expired documents count',
+  has_unverified_docs: 'Has unverified documents',
+  annual_income_band_encoded: 'Annual income band',
+};
+
 export default function CaseDetailPage() {
   const { caseId } = useParams();
   const navigate = useNavigate();
@@ -63,6 +70,7 @@ export default function CaseDetailPage() {
   const hasRiskClassification = !!caseData.risk_classification;
   const canCloseCase = documentsComplete;
   const canClose = documentsComplete && hasRiskClassification;
+  const mlRecommendations = caseData.ml_recommendations || [];
 
   const handleStatusChange = async (e) => {
     const newStatus = e.target.value;
@@ -180,6 +188,55 @@ export default function CaseDetailPage() {
           </p>
         )}
         {statusUpdateError && <p className="error">{statusUpdateError}</p>}
+      </section>
+
+      <section className="card">
+        <h2>ML Risk Prediction <span className="hint">(officer view only)</span></h2>
+        {caseData.ml_prediction ? (
+          <>
+            <dl className="detail-grid">
+              <dt>Predicted decision</dt>
+              <dd>
+                <span className={`status-badge status-${caseData.ml_prediction.toLowerCase()}`}>
+                  {caseData.ml_prediction}
+                </span>
+              </dd>
+              <dt>Approval probability</dt>
+              <dd>{Math.round(caseData.ml_approval_probability * 100)}%</dd>
+              <dt>Last predicted</dt>
+              <dd>{formatDateTime(caseData.ml_predicted_at)}</dd>
+            </dl>
+            {caseData.ml_prediction === 'REJECTED' && (
+              <>
+                <h3>What would change this to Approved</h3>
+                {mlRecommendations.length === 0 ? (
+                  <p className="hint">No actionable recommendation could be generated for this case.</p>
+                ) : (
+                  <table className="cases-table">
+                    <thead>
+                      <tr>
+                        <th>Factor</th>
+                        <th>Current value</th>
+                        <th>Suggested value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mlRecommendations.map((rec) => (
+                        <tr key={rec.feature}>
+                          <td>{RECOMMENDATION_LABELS[rec.feature] || rec.feature}</td>
+                          <td>{rec.current_value}</td>
+                          <td>{rec.suggested_value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <p>No ML prediction available yet for this case.</p>
+        )}
       </section>
 
       <section className="card">

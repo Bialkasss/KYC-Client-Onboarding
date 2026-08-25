@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage';
 import ClientHomePage from './pages/ClientHomePage';
 import OfficerHomePage from './pages/OfficerHomePage';
 import AdminHomePage from './pages/AdminHomePage';
+import AdminDashboardPage from './pages/AdminDashboardPage';
 import CaseDetailPage from './pages/CaseDetailPage';
 import './App.css';
 
@@ -49,6 +50,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={[ROLES.ADMIN_COMPLIANCE_OFFICER]}>
               <AdminHomePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={[ROLES.ADMIN_COMPLIANCE_OFFICER]}>
+              <AdminDashboardPage />
             </ProtectedRoute>
           }
         />

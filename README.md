@@ -135,6 +135,16 @@ java -cp "out:.:lib/*" KycApiServer
 
 ```
 
+### 3.5 Python Analysis microservice
+
+1. Install dependencies, run the microservice (using venv)
+```bash
+source .venv/Source/activate
+cd data_analysis 
+python -m pip install -r requirements.txt
+python app.py
+```
+
 
 
 ---
@@ -142,6 +152,8 @@ java -cp "out:.:lib/*" KycApiServer
 ### 4. Frontend (React) Setup and Execution
 
 The frontend is a Vite + React app in `frontend/` that talks to the Java API server above (default `http://localhost:8080`). Start the API server first, then run the frontend:
+1. Prerequisites:
+run analysis.ipynb to obtain kyc_model.pkl
 
 1. Install dependencies (first time only):
 ```bash

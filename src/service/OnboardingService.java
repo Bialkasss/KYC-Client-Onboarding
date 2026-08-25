@@ -16,6 +16,7 @@ public class OnboardingService {
 
     private final OnboardingRepository onboardingRepository;
     private final NotificationService notificationService;
+    private final MLPredictionService mlPredictionService;
 
     public OnboardingService() {
         this(new OnboardingRepository(), new NotificationService());
@@ -28,6 +29,7 @@ public class OnboardingService {
     public OnboardingService(OnboardingRepository onboardingRepository, NotificationService notificationService) {
         this.onboardingRepository = onboardingRepository;
         this.notificationService = notificationService;
+        this.mlPredictionService = new MLPredictionService();
     }
 
     /**
@@ -60,6 +62,7 @@ public class OnboardingService {
         logger.info("Case opened from onboarding form: clientId={} caseId={} username={}", result.clientId,
                 result.caseId, username);
         notificationService.sendLoginCredentials(username, temporaryPassword);
+        mlPredictionService.predictAndSave(result.caseId);
         return result;
     }
 }
