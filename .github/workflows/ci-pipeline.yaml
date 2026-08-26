@@ -76,12 +76,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Load schema, views/procedures, and seed data
+      - name: Load schema and seed data
         run: |
-          mysql -h 127.0.0.1 -P 3306 -u root -e "DROP DATABASE IF EXISTS kyc_db; CREATE DATABASE kyc_db;"
-          mysql -h 127.0.0.1 -P 3306 -u root < ddl_schema.sql
-          mysql -h 127.0.0.1 -P 3306 -u root < views_and_stored_procedures.sql
-          mysql -h 127.0.0.1 -P 3306 -u root < 01_seed_data.sql
+          mysql -h 127.0.0.1 -P 3306 -u root < sql/00_db_schema.sql
+          mysql -h 127.0.0.1 -P 3306 -u root < sql/01_basic_data.sql
+          mysql -h 127.0.0.1 -P 3306 -u root < sql/02_more_data.sql
 
       - name: Download runtime dependencies (SLF4J, Logback, MySQL connector)
         working-directory: src
