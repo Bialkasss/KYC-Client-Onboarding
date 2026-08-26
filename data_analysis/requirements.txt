@@ -9,3 +9,4 @@ lightgbm
 shap
 dice-ml
 matplotlib
+seaborn

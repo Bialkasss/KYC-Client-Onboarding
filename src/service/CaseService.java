@@ -285,6 +285,33 @@ public class CaseService {
     }
 
     /**
+     * Lists cases with pagination support.
+     *
+     * @param statusFilter case status to filter by, or null for no filter
+     * @param officerFilter officer id to filter by, or null for no filter
+     * @param offset number of cases to skip
+     * @param limit maximum number of cases to return
+     * @return JSON response with cases array and pagination metadata
+     * @throws SQLException when the query fails
+     */
+    public String listCasesPaginated(String statusFilter, Integer officerFilter, int offset, int limit)
+            throws SQLException {
+        int total = caseRepository.countCases(statusFilter, officerFilter);
+        List<String> cases = caseRepository.listCasesPaginated(statusFilter, officerFilter, offset, limit);
+        
+        StringBuilder json = new StringBuilder();
+        json.append("{\n");
+        json.append("  \"total\": ").append(total).append(",\n");
+        json.append("  \"offset\": ").append(offset).append(",\n");
+        json.append("  \"limit\": ").append(limit).append(",\n");
+        json.append("  \"cases\": [\n");
+        json.append(String.join(",\n", cases));
+        json.append("\n  ]\n");
+        json.append("}");
+        return json.toString();
+    }
+
+    /**
      * Fetches full case details, including submitted documents.
      *
      * @param id case id

@@ -70,7 +70,18 @@ export default function CaseDetailPage() {
   const hasRiskClassification = !!caseData.risk_classification;
   const canCloseCase = documentsComplete;
   const canClose = documentsComplete && hasRiskClassification;
-  const mlRecommendations = caseData.ml_recommendations || [];
+  
+  // Parse ML recommendations from JSON string if needed
+  let mlRecommendations = [];
+  if (caseData.ml_recommendations) {
+    try {
+      mlRecommendations = typeof caseData.ml_recommendations === 'string' 
+        ? JSON.parse(caseData.ml_recommendations) 
+        : caseData.ml_recommendations;
+    } catch (e) {
+      console.error('Failed to parse ml_recommendations:', e);
+    }
+  }
 
   const handleStatusChange = async (e) => {
     const newStatus = e.target.value;

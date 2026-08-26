@@ -7,6 +7,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import repository.CaseRepository;
@@ -36,7 +37,10 @@ public class MLPredictionService {
 
     public MLPredictionService(CaseRepository caseRepository) {
         this.caseRepository = caseRepository;
-        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
     }
 
     /**
@@ -53,11 +57,14 @@ public class MLPredictionService {
                 return;
             }
 
+            String jsonBody = toJson(features);
+            logger.debug("ML prediction request body: caseId={} payload={}", caseId, jsonBody);
+
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(ML_SERVICE_URL))
                     .timeout(Duration.ofSeconds(10))
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(toJson(features)))
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
@@ -67,6 +74,7 @@ public class MLPredictionService {
             }
 
             String body = response.body();
+            logger.info("ML prediction response: caseId={} body={}", caseId, body);
             String decision = extractString(body, "decision");
             Double probability = extractDouble(body, "approval_probability");
             String recommendations = extractArrayOrNull(body, "recommendations");
@@ -75,6 +83,8 @@ public class MLPredictionService {
                 return;
             }
 
+            logger.info("ML prediction parsed: caseId={} decision={} probability={} recommendations={}", 
+                    caseId, decision, probability, recommendations);
             caseRepository.saveMlPrediction(caseId, decision, probability, recommendations);
             logger.info("ML prediction computed: caseId={} decision={} probability={}", caseId, decision,
                     probability);
@@ -83,6 +93,19 @@ public class MLPredictionService {
             logger.warn("ML prediction interrupted: caseId={}", caseId);
         } catch (SQLException | IOException | RuntimeException e) {
             logger.warn("ML prediction failed: caseId={} reason={}", caseId, e.getMessage());
+        }
+    }
+
+    public void predictAllCases() {
+        try {
+            List<Integer> allCaseIds = caseRepository.getAllCaseIds();
+            logger.info("Starting batch prediction for {} cases...", allCaseIds.size());
+            for (int caseId : allCaseIds) {
+                predictAndSave(caseId);
+            }
+            logger.info("Batch prediction finished.");
+        } catch (SQLException e) {
+            logger.warn("Batch prediction failed: reason={}", e.getMessage());
         }
     }
 

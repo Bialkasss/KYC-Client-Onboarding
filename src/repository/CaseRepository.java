@@ -281,9 +281,10 @@ public class CaseRepository {
                 "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
                 "LEFT JOIN compliance_officer co ON oc.assigned_officer_id = co.officer_id";
 
+        List<String> statuses = splitStatuses(statusFilter);
         List<String> conditions = new ArrayList<>();
-        if (statusFilter != null && !statusFilter.isEmpty()) {
-            conditions.add("oc.case_status = ?");
+        if (!statuses.isEmpty()) {
+            conditions.add("oc.case_status IN (" + placeholders(statuses.size()) + ")");
         }
         if (officerFilter != null) {
             conditions.add("oc.assigned_officer_id = ?");
@@ -297,12 +298,151 @@ public class CaseRepository {
                 PreparedStatement ps = conn.prepareStatement(sql)) {
 
             int paramIndex = 1;
-            if (statusFilter != null && !statusFilter.isEmpty()) {
-                ps.setString(paramIndex++, statusFilter);
+            for (String status : statuses) {
+                ps.setString(paramIndex++, status);
             }
             if (officerFilter != null) {
                 ps.setInt(paramIndex++, officerFilter);
             }
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int officerId = rs.getInt("assigned_officer_id");
+                    boolean hasOfficer = !rs.wasNull();
+                    String json = "  {"
+                            + "\"case_id\":" + rs.getInt("case_id") + ","
+                            + "\"client_id\":" + rs.getInt("client_id") + ","
+                            + "\"client_name\":\"" + DatabaseConnection.escape(rs.getString("client_name")) + "\","
+                            + "\"client_type\":\"" + DatabaseConnection.escape(rs.getString("client_type")) + "\","
+                            + "\"client_status\":\"" + DatabaseConnection.escape(rs.getString("client_status")) + "\","
+                            + "\"product_type\":\"" + DatabaseConnection.escape(rs.getString("product_type")) + "\","
+                            + "\"case_status\":\"" + DatabaseConnection.escape(rs.getString("case_status")) + "\","
+                            + "\"opened_date\":\"" + rs.getString("opened_date") + "\","
+                            + "\"due_date\":" + DatabaseConnection.jsonStringOrNull(rs.getString("due_date")) + ","
+                            + "\"assigned_officer_id\":" + (hasOfficer ? officerId : "null") + ","
+                            + "\"officer_name\":" + DatabaseConnection.jsonStringOrNull(rs.getString("officer_name"))
+                            + "}";
+                    list.add(json);
+                }
+            }
+        }
+        return list;
+    }
+
+    /** Splits a comma-separated status filter string into a list, ignoring blanks. */
+    private static List<String> splitStatuses(String statusFilter) {
+        List<String> statuses = new ArrayList<>();
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            for (String s : statusFilter.split(",")) {
+                String trimmed = s.trim();
+                if (!trimmed.isEmpty()) {
+                    statuses.add(trimmed);
+                }
+            }
+        }
+        return statuses;
+    }
+
+    /** Builds a comma-separated "?" placeholder list of the given size for use in an IN clause. */
+    private static String placeholders(int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                sb.append(",");
+            }
+            sb.append("?");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Counts total cases matching the given filters.
+     *
+     * @param statusFilter case status to filter by, or null for no filter
+     * @param officerFilter officer id to filter by, or null for no filter
+     * @return total number of matching cases
+     * @throws SQLException when the query fails
+     */
+    public int countCases(String statusFilter, Integer officerFilter) throws SQLException {
+        String sql = "SELECT COUNT(*) AS total FROM onboarding_case oc " +
+                "LEFT JOIN client c ON oc.client_id = c.client_id";
+
+        List<String> statuses = splitStatuses(statusFilter);
+        List<String> conditions = new ArrayList<>();
+        if (!statuses.isEmpty()) {
+            conditions.add("oc.case_status IN (" + placeholders(statuses.size()) + ")");
+        }
+        if (officerFilter != null) {
+            conditions.add("oc.assigned_officer_id = ?");
+        }
+        if (!conditions.isEmpty()) {
+            sql += " WHERE " + String.join(" AND ", conditions);
+        }
+
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            int paramIndex = 1;
+            for (String status : statuses) {
+                ps.setString(paramIndex++, status);
+            }
+            if (officerFilter != null) {
+                ps.setInt(paramIndex++, officerFilter);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("total");
+                }
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Lists cases with pagination support. Returns cases matching the given
+     * filters, limited to the specified offset and limit.
+     *
+     * @param statusFilter case status to filter by, or null for no filter
+     * @param officerFilter officer id to filter by, or null for no filter
+     * @param offset number of cases to skip
+     * @param limit maximum number of cases to return
+     * @return list of case JSON strings
+     * @throws SQLException when the query fails
+     */
+    public List<String> listCasesPaginated(String statusFilter, Integer officerFilter, int offset, int limit)
+            throws SQLException {
+        String sql = "SELECT oc.case_id, oc.client_id, oc.opened_date, oc.product_type, oc.case_status, " +
+                "oc.due_date, oc.assigned_officer_id, co.full_name AS officer_name, " +
+                "c.full_name AS client_name, c.client_type, c.status AS client_status " +
+                "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
+                "LEFT JOIN compliance_officer co ON oc.assigned_officer_id = co.officer_id";
+
+        List<String> statuses = splitStatuses(statusFilter);
+        List<String> conditions = new ArrayList<>();
+        if (!statuses.isEmpty()) {
+            conditions.add("oc.case_status IN (" + placeholders(statuses.size()) + ")");
+        }
+        if (officerFilter != null) {
+            conditions.add("oc.assigned_officer_id = ?");
+        }
+        if (!conditions.isEmpty()) {
+            sql += " WHERE " + String.join(" AND ", conditions);
+        }
+
+        sql += " ORDER BY oc.case_id DESC LIMIT ? OFFSET ?";
+
+        List<String> list = new ArrayList<>();
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            int paramIndex = 1;
+            for (String status : statuses) {
+                ps.setString(paramIndex++, status);
+            }
+            if (officerFilter != null) {
+                ps.setInt(paramIndex++, officerFilter);
+            }
+            ps.setInt(paramIndex++, limit);
+            ps.setInt(paramIndex++, offset);
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -600,6 +740,26 @@ public class CaseRepository {
             }
             return features;
         }
+    }
+
+    /**
+     * Fetches all case IDs from the database for batch processing.
+     *
+     * @return list of all case ids
+     * @throws SQLException when the query fails
+     */
+    public List<Integer> getAllCaseIds() throws SQLException {
+        String sql = "SELECT case_id FROM onboarding_case ORDER BY case_id";
+        List<Integer> caseIds = new ArrayList<>();
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    caseIds.add(rs.getInt("case_id"));
+                }
+            }
+        }
+        return caseIds;
     }
 
     /**

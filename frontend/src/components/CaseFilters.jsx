@@ -19,13 +19,14 @@ export const DUE_DATE_FILTERS = [
 ];
 
 // Checks whether a case's due date satisfies one of the quick due-date filter options.
-export function matchesDueDateFilter(dueDate, filter) {
+export function matchesDueDateFilter(dueDate, filter, caseStatus) {
   if (filter === 'all') return true;
   if (filter === 'none') return !dueDate;
   if (!dueDate) return false;
   const daysLeft = Math.ceil((new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24));
-  if (filter === 'overdue') return daysLeft < 0;
-  if (filter === 'soon') return daysLeft >= 0 && daysLeft <= 30;
+  // Overdue/soon only apply to cases that are still open (not closed)
+  if (filter === 'overdue') return daysLeft < 0 && caseStatus !== 'CLOSED';
+  if (filter === 'soon') return daysLeft >= 0 && daysLeft <= 30 && caseStatus !== 'CLOSED';
   return true;
 }
 

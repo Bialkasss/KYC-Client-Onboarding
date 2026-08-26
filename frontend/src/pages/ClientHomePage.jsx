@@ -17,11 +17,18 @@ export default function ClientHomePage() {
   const loadCaseData = async () => {
     try {
       setLoading(true);
-      const [cases, client] = await Promise.all([
-        api.getCases(),
+      const [casesResponse, client] = await Promise.all([
+        api.getCases(undefined, undefined, 1000, 0),
         api.getClient(user.entityId),
       ]);
-      const myCase = cases.find((c) => c.client_id === user.entityId);
+      
+      // Handle paginated response format
+      let cases = casesResponse;
+      if (casesResponse && typeof casesResponse === 'object' && casesResponse.cases && Array.isArray(casesResponse.cases)) {
+        cases = casesResponse.cases;
+      }
+      
+      const myCase = Array.isArray(cases) ? cases.find((c) => c.client_id === user.entityId) : null;
       if (!myCase) {
         setCaseData(null);
         setClientType(client.client_type);
