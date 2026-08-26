@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+pydantic
+joblib
+pandas
+numpy
+scikit-learn
+lightgbm
+shap
+dice-ml
+matplotlib
+seaborn
+faker
+sqlalchemy
+pymysql

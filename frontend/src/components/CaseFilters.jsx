@@ -1,8 +1,13 @@
 export const CASE_STATUSES = [
   { value: 'OPEN', label: 'Open', className: 'status-open' },
-  { value: 'AWAITING_DOCUMENTS', label: 'Awaiting Documents', className: 'status-awaiting_documents' },
-  { value: 'IN_REVIEW', label: 'In Review', className: 'status-in_review' },
+  { value: 'PENDING_DOCUMENTS', label: 'Pending Documents', className: 'status-pending' },
+  { value: 'IN_REVIEW', label: 'In Review', className: 'status-pending' },
+  { value: 'CLOSED', label: 'Closed', className: 'status-closed' },
+];
+
+export const CLIENT_STATUSES = [
   { value: 'APPROVED', label: 'Approved', className: 'status-approved' },
+  { value: 'PENDING_REVIEW', label: 'Pending Review', className: 'status-pending' },
   { value: 'REJECTED', label: 'Rejected', className: 'status-rejected' },
 ];
 
@@ -14,13 +19,14 @@ export const DUE_DATE_FILTERS = [
 ];
 
 // Checks whether a case's due date satisfies one of the quick due-date filter options.
-export function matchesDueDateFilter(dueDate, filter) {
+export function matchesDueDateFilter(dueDate, filter, caseStatus) {
   if (filter === 'all') return true;
   if (filter === 'none') return !dueDate;
   if (!dueDate) return false;
   const daysLeft = Math.ceil((new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24));
-  if (filter === 'overdue') return daysLeft < 0;
-  if (filter === 'soon') return daysLeft >= 0 && daysLeft <= 30;
+  // Overdue/soon only apply to cases that are still open (not closed)
+  if (filter === 'overdue') return daysLeft < 0 && caseStatus !== 'CLOSED';
+  if (filter === 'soon') return daysLeft >= 0 && daysLeft <= 30 && caseStatus !== 'CLOSED';
   return true;
 }
 
@@ -39,6 +45,8 @@ export function sortCasesByDueDate(cases, direction) {
 export default function CaseFilters({
   selectedStatuses,
   onToggleStatus,
+  selectedClientStatuses,
+  onToggleClientStatus,
   dueDateFilter,
   onDueDateFilterChange,
   dueDateSort,
@@ -47,7 +55,7 @@ export default function CaseFilters({
   return (
     <div className="case-filters">
       <div className="filter-group">
-        <span className="filter-label">Status</span>
+        <span className="filter-label">Case status</span>
         <div className="filter-buttons">
           {CASE_STATUSES.map((s) => (
             <button
@@ -63,6 +71,26 @@ export default function CaseFilters({
           ))}
         </div>
       </div>
+
+      {onToggleClientStatus && (
+        <div className="filter-group">
+          <span className="filter-label">Client status</span>
+          <div className="filter-buttons">
+            {CLIENT_STATUSES.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                className={`status-filter-button ${s.className} ${
+                  selectedClientStatuses.includes(s.value) ? 'active' : ''
+                }`}
+                onClick={() => onToggleClientStatus(s.value)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="filter-group">
         <span className="filter-label">Due date</span>

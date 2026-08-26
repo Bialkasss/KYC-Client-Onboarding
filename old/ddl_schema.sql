@@ -53,7 +53,9 @@ CREATE TABLE `client` (
   `status` varchar(255) COMMENT 'PENDING / ACTIVE / SUSPENDED / REJECTED',
   `is_active` boolean NOT NULL DEFAULT TRUE,
   `username` varchar(100) UNIQUE,
-  `password_hash` varchar(255) COMMENT 'PBKDF2-HMAC-SHA256 salted hash, see util.PasswordHasher'
+  `password_hash` varchar(255) COMMENT 'PBKDF2-HMAC-SHA256 salted hash, see util.PasswordHasher',
+  `is_pep` boolean NOT NULL DEFAULT FALSE,
+  `adverse_media_hits` integer NOT NULL DEFAULT 0
 );
 
 CREATE INDEX idx_client_status ON client (status);
@@ -84,6 +86,11 @@ CREATE TABLE `onboarding_case` (
   `due_date` DATE,
   `completed_date` TIMESTAMP NULL DEFAULT NULL,
   `rejection_reason` VARCHAR(200),
+  `jurisdiction_risk` VARCHAR(20) DEFAULT 'LOW' COMMENT 'LOW / MEDIUM / HIGH',
+  `ml_prediction` VARCHAR(20) NULL COMMENT 'APPROVED / REJECTED, predicted by ML model',
+  `ml_approval_probability` DECIMAL(5,4) NULL COMMENT 'Predicted probability of approval, 0-1',
+  `ml_recommendations` TEXT NULL COMMENT 'JSON array of DiCE counterfactual suggestions; only populated when ml_prediction = REJECTED',
+  `ml_predicted_at` TIMESTAMP NULL DEFAULT NULL COMMENT 'When the prediction was last (re)computed',
   CONSTRAINT `fk_case_client` FOREIGN KEY (`client_id`) REFERENCES `client` (`client_id`),
   CONSTRAINT `fk_case_officer` FOREIGN KEY (`assigned_officer_id`) REFERENCES `compliance_officer` (`officer_id`)
 );
@@ -91,6 +98,7 @@ CREATE TABLE `onboarding_case` (
 CREATE INDEX idx_onboarding_case_client_id ON onboarding_case (client_id);
 CREATE INDEX idx_onboarding_case_assigned_officer_id ON onboarding_case (assigned_officer_id);
 CREATE INDEX idx_onboarding_case_status ON onboarding_case (case_status);
+CREATE INDEX idx_onboarding_case_ml_prediction ON onboarding_case (ml_prediction);
 
 CREATE TABLE `document` (
   `doc_id` integer PRIMARY KEY AUTO_INCREMENT,

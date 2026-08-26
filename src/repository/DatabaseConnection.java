@@ -43,4 +43,16 @@ public class DatabaseConnection {
     public static String jsonStringOrNull(String s) {
         return s == null ? "null" : "\"" + escape(s) + "\"";
     }
+
+    /**
+     * Embeds a pre-built JSON fragment (object/array) as-is, or "null" when absent.
+     * Unlike {@link #jsonStringOrNull(String)}, the value is not quoted/escaped
+     * since it is already valid JSON.
+     *
+     * @param rawJson pre-built JSON fragment
+     * @return the fragment unchanged, or the JSON literal "null"
+     */
+    public static String rawJsonOrNull(String rawJson) {
+        return (rawJson == null || rawJson.isBlank()) ? "null" : rawJson;
+    }
 }

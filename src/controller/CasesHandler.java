@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import repository.InvalidStateTransitionException;
 import repository.OnboardingRepository;
 import service.CaseService;
+import service.MLPredictionService;
 import service.OnboardingService;
 import util.HttpResponseUtil;
 
@@ -26,6 +27,7 @@ public class CasesHandler implements HttpHandler {
     private final CaseService caseService = new CaseService();
     private final service.OfficerService officerService = new service.OfficerService();
     private final OnboardingService onboardingService = new OnboardingService();
+    private final MLPredictionService mlPredictionService = new MLPredictionService();
 
     /**
      * Dispatches requests for /api/onboarding/cases routes.
@@ -53,6 +55,8 @@ public class CasesHandler implements HttpHandler {
                     }
                 } else if (parts.length == 5 && "open".equals(parts[4])) {
                     handleOpenCase(exchange);
+                } else if (parts.length == 5 && "predict-all".equals(parts[4])) {
+                    handleBulkPredictAllCases(exchange);
                 } else if (parts.length == 4 && "cases".equals(parts[3])) {
                     handleCreateOnboardingCase(exchange);
                 } else {
@@ -101,14 +105,26 @@ public class CasesHandler implements HttpHandler {
                 } else if (parts.length == 4 && "cases".equals(parts[3])) {
                     String statusFilter = parseQueryParam(query, "status");
                     String officerParam = parseQueryParam(query, "assigned_officer_id");
+                    String limitParam = parseQueryParam(query, "limit");
+                    String offsetParam = parseQueryParam(query, "offset");
+                    
                     Integer officerFilter;
+                    int limit = 50; // default page size
+                    int offset = 0; // default to first page
+                    
                     try {
                         officerFilter = officerParam == null ? null : Integer.valueOf(officerParam);
+                        if (limitParam != null) {
+                            limit = Math.min(Integer.parseInt(limitParam), 500); // cap at 500
+                        }
+                        if (offsetParam != null) {
+                            offset = Math.max(Integer.parseInt(offsetParam), 0); // minimum 0
+                        }
                     } catch (NumberFormatException e) {
-                        HttpResponseUtil.sendResponse(exchange, 400, "{\"error\":\"Invalid assigned_officer_id\"}");
+                        HttpResponseUtil.sendResponse(exchange, 400, "{\"error\":\"Invalid query parameter\"}");
                         return;
                     }
-                    handleListCases(exchange, statusFilter, officerFilter);
+                    handleListCases(exchange, statusFilter, officerFilter, offset, limit);
                 } else {
                     HttpResponseUtil.sendResponse(exchange, 404, "{\"error\":\"Invalid GET endpoint path\"}");
                 }
@@ -340,8 +356,8 @@ public class CasesHandler implements HttpHandler {
      * @throws IOException when response writing fails
      * @throws SQLException when the query fails
      */
-    private void handleListCases(HttpExchange exchange, String statusFilter, Integer officerFilter) throws IOException, SQLException {
-        String json = caseService.listCases(statusFilter, officerFilter);
+    private void handleListCases(HttpExchange exchange, String statusFilter, Integer officerFilter, int offset, int limit) throws IOException, SQLException {
+        String json = caseService.listCasesPaginated(statusFilter, officerFilter, offset, limit);
         HttpResponseUtil.sendResponse(exchange, 200, json);
     }
 
@@ -381,6 +397,35 @@ public class CasesHandler implements HttpHandler {
             HttpResponseUtil.sendResponse(exchange, 404, "{\"error\":\"Case not found\"}");
         } else {
             HttpResponseUtil.sendResponse(exchange, 200, json);
+        }
+    }
+
+    /**
+     * Triggers bulk ML prediction for all cases in the system.
+     * This endpoint runs predictions asynchronously and returns immediately.
+     *
+     * @param exchange current HTTP exchange
+     * @throws IOException when response writing fails
+     */
+    private void handleBulkPredictAllCases(HttpExchange exchange) throws IOException {
+        try {
+            logger.info("Bulk ML prediction requested. Starting background process...");
+            // Run predictions in a background thread to avoid blocking the HTTP response
+            Thread predictionThread = new Thread(() -> {
+                try {
+                    mlPredictionService.predictAllCases();
+                } catch (Exception e) {
+                    logger.error("Bulk ML prediction failed: {}", e.getMessage(), e);
+                }
+            });
+            predictionThread.setName("BulkPredictionThread");
+            predictionThread.setDaemon(true);
+            predictionThread.start();
+
+            HttpResponseUtil.sendResponse(exchange, 202, "{\"message\":\"Bulk ML prediction started in background\",\"status\":\"processing\"}");
+        } catch (Exception e) {
+            logger.error("Failed to start bulk ML prediction: {}", e.getMessage());
+            HttpResponseUtil.sendResponse(exchange, 500, "{\"error\":\"Failed to start bulk prediction\"}");
         }
     }
 

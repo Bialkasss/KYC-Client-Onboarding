@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth, ROLES } from '../auth/AuthContext';
 
 const ROLE_LABELS = {
   CLIENT: 'Client',
@@ -24,6 +24,9 @@ export default function Navbar() {
         <span className="logo-triangle" aria-hidden="true"></span>
         KYC Client Onboarding
       </Link>
+      {user.role === ROLES.ADMIN_COMPLIANCE_OFFICER && (
+        <Link to="/admin/dashboard" className="navbar-link">Dashboard</Link>
+      )}
       <div className="navbar-user">
         <span>
           {user.fullName || user.username} &middot; {ROLE_LABELS[user.role]}

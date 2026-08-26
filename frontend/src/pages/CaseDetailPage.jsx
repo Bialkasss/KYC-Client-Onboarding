@@ -8,13 +8,18 @@ import DocumentViewModal from '../components/DocumentViewModal';
 
 const NEXT_STATUS_OPTIONS = [
   'OPEN',
-  'AWAITING_DOCUMENTS',
-  'IN_REVIEW',
-  'APPROVED',
-  'REJECTED',
+  'PENDING',
+  'CLOSED',
 ];
 
 const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH'];
+
+const RECOMMENDATION_LABELS = {
+  verified_docs_count: 'Verified documents count',
+  expired_docs_count: 'Expired documents count',
+  has_unverified_docs: 'Has unverified documents',
+  annual_income_band_encoded: 'Annual income band',
+};
 
 export default function CaseDetailPage() {
   const { caseId } = useParams();
@@ -58,19 +63,31 @@ export default function CaseDetailPage() {
 
   const submittedDocTypes = caseData.documents.map((d) => d.doc_type);
   const missingDocs = getMissingDocuments(caseData.client_type, submittedDocTypes);
-  const isClosed = caseData.case_status === 'CLOSED' || caseData.case_status === 'REJECTED' || caseData.case_status === 'APPROVED';
+  const isClosed = caseData.case_status === 'CLOSED';
 
   const allDocumentsVerified = caseData.documents.length > 0 && caseData.documents.every((d) => d.verified);
   const documentsComplete = missingDocs.length === 0 && allDocumentsVerified;
   const hasRiskClassification = !!caseData.risk_classification;
   const canCloseCase = documentsComplete;
-  const canApproveOrReject = documentsComplete && hasRiskClassification;
+  const canClose = documentsComplete && hasRiskClassification;
+  
+  // Parse ML recommendations from JSON string if needed
+  let mlRecommendations = [];
+  if (caseData.ml_recommendations) {
+    try {
+      mlRecommendations = typeof caseData.ml_recommendations === 'string' 
+        ? JSON.parse(caseData.ml_recommendations) 
+        : caseData.ml_recommendations;
+    } catch (e) {
+      console.error('Failed to parse ml_recommendations:', e);
+    }
+  }
 
   const handleStatusChange = async (e) => {
     const newStatus = e.target.value;
-    if ((newStatus === 'APPROVED') && !canApproveOrReject) {
+    if (newStatus === 'CLOSED' && !canClose) {
       setStatusUpdateError(
-        `This case must have all required documents verified and a risk classification before it can be ${newStatus.toLowerCase()}.`
+        `This case must have all required documents verified and a risk classification before it can be closed.`
       );
       return;
     }
@@ -139,6 +156,12 @@ export default function CaseDetailPage() {
               {caseData.case_status}
             </span>
           </dd>
+          <dt>Client status</dt>
+          <dd>
+            <span className={`status-badge status-${caseData.client_status.toLowerCase()}`}>
+              {caseData.client_status}
+            </span>
+          </dd>
           <dt>Assigned officer</dt>
           <dd>{caseData.officer_name || 'Unassigned'}</dd>
           <dt>Opened</dt>
@@ -159,7 +182,7 @@ export default function CaseDetailPage() {
           Status
           <select value={caseData.case_status} onChange={handleStatusChange} disabled={isClosed}>
             {NEXT_STATUS_OPTIONS.map((s) => {
-              const blocked = (s === 'APPROVED') && !canApproveOrReject;
+              const blocked = s === 'CLOSED' && !canClose;
               return (
                 <option key={s} value={s} disabled={blocked}>
                   {s}
@@ -169,13 +192,62 @@ export default function CaseDetailPage() {
             })}
           </select>
         </label>
-        {!isClosed && !canApproveOrReject && (
+        {!isClosed && !canClose && (
           <p className="hint">
-            Approving requires all required documents to be submitted and verified,
+            Closing requires all required documents to be submitted and verified,
             and a risk classification on record.
           </p>
         )}
         {statusUpdateError && <p className="error">{statusUpdateError}</p>}
+      </section>
+
+      <section className="card">
+        <h2>ML Risk Prediction <span className="hint">(officer view only)</span></h2>
+        {caseData.ml_prediction ? (
+          <>
+            <dl className="detail-grid">
+              <dt>Predicted decision</dt>
+              <dd>
+                <span className={`status-badge status-${caseData.ml_prediction.toLowerCase()}`}>
+                  {caseData.ml_prediction}
+                </span>
+              </dd>
+              <dt>Approval probability</dt>
+              <dd>{Math.round(caseData.ml_approval_probability * 100)}%</dd>
+              <dt>Last predicted</dt>
+              <dd>{formatDateTime(caseData.ml_predicted_at)}</dd>
+            </dl>
+            {caseData.ml_prediction === 'REJECTED' && (
+              <>
+                <h3>What would change this to Approved</h3>
+                {mlRecommendations.length === 0 ? (
+                  <p className="hint">No actionable recommendation could be generated for this case.</p>
+                ) : (
+                  <table className="cases-table">
+                    <thead>
+                      <tr>
+                        <th>Factor</th>
+                        <th>Current value</th>
+                        <th>Suggested value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mlRecommendations.map((rec) => (
+                        <tr key={rec.feature}>
+                          <td>{RECOMMENDATION_LABELS[rec.feature] || rec.feature}</td>
+                          <td>{rec.current_value}</td>
+                          <td>{rec.suggested_value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <p>No ML prediction available yet for this case.</p>
+        )}
       </section>
 
       <section className="card">

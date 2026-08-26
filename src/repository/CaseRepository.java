@@ -276,14 +276,15 @@ public class CaseRepository {
 
     public List<String> listCases(String statusFilter, Integer officerFilter) throws SQLException {
         String sql = "SELECT oc.case_id, oc.client_id, oc.opened_date, oc.product_type, oc.case_status, " +
-                "oc.due_date, oc.assigned_officer_id, co.full_name AS officer_name, " +
-                "c.full_name AS client_name, c.client_type " +
+                "oc.due_date, oc.assigned_officer_id, oc.ml_prediction, co.full_name AS officer_name, " +
+                "c.full_name AS client_name, c.client_type, c.status AS client_status " +
                 "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
                 "LEFT JOIN compliance_officer co ON oc.assigned_officer_id = co.officer_id";
 
+        List<String> statuses = splitStatuses(statusFilter);
         List<String> conditions = new ArrayList<>();
-        if (statusFilter != null && !statusFilter.isEmpty()) {
-            conditions.add("oc.case_status = ?");
+        if (!statuses.isEmpty()) {
+            conditions.add("oc.case_status IN (" + placeholders(statuses.size()) + ")");
         }
         if (officerFilter != null) {
             conditions.add("oc.assigned_officer_id = ?");
@@ -297,8 +298,8 @@ public class CaseRepository {
                 PreparedStatement ps = conn.prepareStatement(sql)) {
 
             int paramIndex = 1;
-            if (statusFilter != null && !statusFilter.isEmpty()) {
-                ps.setString(paramIndex++, statusFilter);
+            for (String status : statuses) {
+                ps.setString(paramIndex++, status);
             }
             if (officerFilter != null) {
                 ps.setInt(paramIndex++, officerFilter);
@@ -313,12 +314,154 @@ public class CaseRepository {
                             + "\"client_id\":" + rs.getInt("client_id") + ","
                             + "\"client_name\":\"" + DatabaseConnection.escape(rs.getString("client_name")) + "\","
                             + "\"client_type\":\"" + DatabaseConnection.escape(rs.getString("client_type")) + "\","
+                            + "\"client_status\":\"" + DatabaseConnection.escape(rs.getString("client_status")) + "\","
                             + "\"product_type\":\"" + DatabaseConnection.escape(rs.getString("product_type")) + "\","
                             + "\"case_status\":\"" + DatabaseConnection.escape(rs.getString("case_status")) + "\","
                             + "\"opened_date\":\"" + rs.getString("opened_date") + "\","
                             + "\"due_date\":" + DatabaseConnection.jsonStringOrNull(rs.getString("due_date")) + ","
                             + "\"assigned_officer_id\":" + (hasOfficer ? officerId : "null") + ","
-                            + "\"officer_name\":" + DatabaseConnection.jsonStringOrNull(rs.getString("officer_name"))
+                            + "\"officer_name\":" + DatabaseConnection.jsonStringOrNull(rs.getString("officer_name")) + ","
+                            + "\"ml_prediction\":" + DatabaseConnection.jsonStringOrNull(rs.getString("ml_prediction"))
+                            + "}";
+                    list.add(json);
+                }
+            }
+        }
+        return list;
+    }
+
+    /** Splits a comma-separated status filter string into a list, ignoring blanks. */
+    private static List<String> splitStatuses(String statusFilter) {
+        List<String> statuses = new ArrayList<>();
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            for (String s : statusFilter.split(",")) {
+                String trimmed = s.trim();
+                if (!trimmed.isEmpty()) {
+                    statuses.add(trimmed);
+                }
+            }
+        }
+        return statuses;
+    }
+
+    /** Builds a comma-separated "?" placeholder list of the given size for use in an IN clause. */
+    private static String placeholders(int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                sb.append(",");
+            }
+            sb.append("?");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Counts total cases matching the given filters.
+     *
+     * @param statusFilter case status to filter by, or null for no filter
+     * @param officerFilter officer id to filter by, or null for no filter
+     * @return total number of matching cases
+     * @throws SQLException when the query fails
+     */
+    public int countCases(String statusFilter, Integer officerFilter) throws SQLException {
+        String sql = "SELECT COUNT(*) AS total FROM onboarding_case oc " +
+                "LEFT JOIN client c ON oc.client_id = c.client_id";
+
+        List<String> statuses = splitStatuses(statusFilter);
+        List<String> conditions = new ArrayList<>();
+        if (!statuses.isEmpty()) {
+            conditions.add("oc.case_status IN (" + placeholders(statuses.size()) + ")");
+        }
+        if (officerFilter != null) {
+            conditions.add("oc.assigned_officer_id = ?");
+        }
+        if (!conditions.isEmpty()) {
+            sql += " WHERE " + String.join(" AND ", conditions);
+        }
+
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            int paramIndex = 1;
+            for (String status : statuses) {
+                ps.setString(paramIndex++, status);
+            }
+            if (officerFilter != null) {
+                ps.setInt(paramIndex++, officerFilter);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("total");
+                }
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Lists cases with pagination support. Returns cases matching the given
+     * filters, limited to the specified offset and limit.
+     *
+     * @param statusFilter case status to filter by, or null for no filter
+     * @param officerFilter officer id to filter by, or null for no filter
+     * @param offset number of cases to skip
+     * @param limit maximum number of cases to return
+     * @return list of case JSON strings
+     * @throws SQLException when the query fails
+     */
+    public List<String> listCasesPaginated(String statusFilter, Integer officerFilter, int offset, int limit)
+            throws SQLException {
+        String sql = "SELECT oc.case_id, oc.client_id, oc.opened_date, oc.product_type, oc.case_status, " +
+                "oc.due_date, oc.assigned_officer_id, oc.ml_prediction, co.full_name AS officer_name, " +
+                "c.full_name AS client_name, c.client_type, c.status AS client_status " +
+                "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
+                "LEFT JOIN compliance_officer co ON oc.assigned_officer_id = co.officer_id";
+
+        List<String> statuses = splitStatuses(statusFilter);
+        List<String> conditions = new ArrayList<>();
+        if (!statuses.isEmpty()) {
+            conditions.add("oc.case_status IN (" + placeholders(statuses.size()) + ")");
+        }
+        if (officerFilter != null) {
+            conditions.add("oc.assigned_officer_id = ?");
+        }
+        if (!conditions.isEmpty()) {
+            sql += " WHERE " + String.join(" AND ", conditions);
+        }
+
+        sql += " ORDER BY oc.case_id DESC LIMIT ? OFFSET ?";
+
+        List<String> list = new ArrayList<>();
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            int paramIndex = 1;
+            for (String status : statuses) {
+                ps.setString(paramIndex++, status);
+            }
+            if (officerFilter != null) {
+                ps.setInt(paramIndex++, officerFilter);
+            }
+            ps.setInt(paramIndex++, limit);
+            ps.setInt(paramIndex++, offset);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int officerId = rs.getInt("assigned_officer_id");
+                    boolean hasOfficer = !rs.wasNull();
+                    String json = "  {"
+                            + "\"case_id\":" + rs.getInt("case_id") + ","
+                            + "\"client_id\":" + rs.getInt("client_id") + ","
+                            + "\"client_name\":\"" + DatabaseConnection.escape(rs.getString("client_name")) + "\","
+                            + "\"client_type\":\"" + DatabaseConnection.escape(rs.getString("client_type")) + "\","
+                            + "\"client_status\":\"" + DatabaseConnection.escape(rs.getString("client_status")) + "\","
+                            + "\"product_type\":\"" + DatabaseConnection.escape(rs.getString("product_type")) + "\","
+                            + "\"case_status\":\"" + DatabaseConnection.escape(rs.getString("case_status")) + "\","
+                            + "\"opened_date\":\"" + rs.getString("opened_date") + "\","
+                            + "\"due_date\":" + DatabaseConnection.jsonStringOrNull(rs.getString("due_date")) + ","
+                            + "\"assigned_officer_id\":" + (hasOfficer ? officerId : "null") + ","
+                            + "\"officer_name\":" + DatabaseConnection.jsonStringOrNull(rs.getString("officer_name")) + ","
+                            + "\"ml_prediction\":" + DatabaseConnection.jsonStringOrNull(rs.getString("ml_prediction"))
                             + "}";
                     list.add(json);
                 }
@@ -358,7 +501,8 @@ public class CaseRepository {
         String caseSql = "SELECT oc.case_id, oc.client_id, oc.opened_date, oc.product_type, oc.case_status, " +
                 "oc.due_date, oc.completed_date, oc.rejection_reason, oc.assigned_officer_id, co.full_name AS officer_name, "
                 +
-                "c.full_name AS client_name, c.client_type, c.date_of_birth, c.country_of_birth, c.nationality, " +
+                "oc.ml_prediction, oc.ml_approval_probability, oc.ml_recommendations, oc.ml_predicted_at, " +
+                "c.full_name AS client_name, c.client_type, c.status AS client_status, c.date_of_birth, c.country_of_birth, c.nationality, " +
                 "c.tax_residency, c.occupation, c.employer, c.main_source_of_funds, c.annual_income_band " +
                 "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
                 "LEFT JOIN compliance_officer co ON oc.assigned_officer_id = co.officer_id " +
@@ -400,6 +544,8 @@ public class CaseRepository {
                             .append("\",")
                             .append("\"client_type\":\"").append(DatabaseConnection.escape(rs.getString("client_type")))
                             .append("\",")
+                            .append("\"client_status\":\"")
+                            .append(DatabaseConnection.escape(rs.getString("client_status"))).append("\",")
                             .append("\"product_type\":\"")
                             .append(DatabaseConnection.escape(rs.getString("product_type"))).append("\",")
                             .append("\"case_status\":\"").append(DatabaseConnection.escape(rs.getString("case_status")))
@@ -429,7 +575,19 @@ public class CaseRepository {
                             .append(DatabaseConnection.jsonStringOrNull(rs.getString("main_source_of_funds")))
                             .append(",")
                             .append("\"annual_income_band\":")
-                            .append(DatabaseConnection.jsonStringOrNull(rs.getString("annual_income_band")));
+                            .append(DatabaseConnection.jsonStringOrNull(rs.getString("annual_income_band")))
+                            .append(",")
+                            .append("\"ml_prediction\":")
+                            .append(DatabaseConnection.jsonStringOrNull(rs.getString("ml_prediction"))).append(",")
+                            .append("\"ml_approval_probability\":")
+                            .append(rs.getObject("ml_approval_probability") == null ? "null"
+                                    : rs.getBigDecimal("ml_approval_probability").toPlainString())
+                            .append(",")
+                            .append("\"ml_recommendations\":")
+                            .append(DatabaseConnection.rawJsonOrNull(rs.getString("ml_recommendations")))
+                            .append(",")
+                            .append("\"ml_predicted_at\":")
+                            .append(DatabaseConnection.jsonStringOrNull(rs.getString("ml_predicted_at")));
                 }
             }
 
@@ -495,6 +653,160 @@ public class CaseRepository {
             json.append(",\"risk_classification\":").append(riskJson == null ? "null" : riskJson);
             json.append("}");
             return json.toString();
+        }
+    }
+
+    /** Raw case/client/document attributes needed to run the ML approval-prediction model. */
+    public static class MlFeatures {
+        public String clientType;
+        public String nationality;
+        public String jurisdictionRisk;
+        public int age;
+        public String annualIncomeBand;
+        public String mainSourceOfFunds;
+        public boolean isPep;
+        public int adverseMediaHits;
+        public boolean isCrossBorder;
+        public String productType;
+        public int totalDocsSubmitted;
+        public int verifiedDocsCount;
+        public int expiredDocsCount;
+        public int hasUnverifiedDocs;
+    }
+
+    /**
+     * Gathers the case/client/document attributes required to run the ML
+     * approval-prediction model for a case.
+     *
+     * @param caseId target case id
+     * @return populated feature set, or null when the case does not exist
+     * @throws SQLException when a lookup fails
+     */
+    public MlFeatures getMlFeatures(int caseId) throws SQLException {
+        String sql = "SELECT oc.product_type, oc.jurisdiction_risk, " +
+                "c.client_type, c.nationality, c.tax_residency, c.date_of_birth, c.main_source_of_funds, " +
+                "c.annual_income_band, c.is_pep, c.adverse_media_hits " +
+                "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
+                "WHERE oc.case_id = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, caseId);
+            MlFeatures features = new MlFeatures();
+            String taxResidency;
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                features.productType = rs.getString("product_type");
+                features.jurisdictionRisk = rs.getString("jurisdiction_risk");
+                features.clientType = rs.getString("client_type");
+                features.nationality = rs.getString("nationality");
+                taxResidency = rs.getString("tax_residency");
+                features.mainSourceOfFunds = rs.getString("main_source_of_funds");
+                features.annualIncomeBand = rs.getString("annual_income_band");
+                features.isPep = rs.getBoolean("is_pep");
+                features.adverseMediaHits = rs.getInt("adverse_media_hits");
+                LocalDate dob = rs.getDate("date_of_birth").toLocalDate();
+                features.age = (int) ChronoUnit.YEARS.between(dob, LocalDate.now());
+            }
+
+            String addressCountry = null;
+            String addressSql = "SELECT country FROM client_address WHERE client_id = " +
+                    "(SELECT client_id FROM onboarding_case WHERE case_id = ?) " +
+                    "AND address_type = 'REGISTERED' LIMIT 1";
+            try (PreparedStatement addrPs = conn.prepareStatement(addressSql)) {
+                addrPs.setInt(1, caseId);
+                try (ResultSet rs = addrPs.executeQuery()) {
+                    if (rs.next()) {
+                        addressCountry = rs.getString("country");
+                    }
+                }
+            }
+            features.isCrossBorder = addressCountry != null && !addressCountry.equalsIgnoreCase(taxResidency);
+
+            String docSql = "SELECT COUNT(*) AS total, " +
+                    "SUM(CASE WHEN verified_flag = true THEN 1 ELSE 0 END) AS verified, " +
+                    "SUM(CASE WHEN expiry_date IS NOT NULL AND expiry_date < CURDATE() THEN 1 ELSE 0 END) AS expired, " +
+                    "SUM(CASE WHEN verified_flag = false THEN 1 ELSE 0 END) AS unverified " +
+                    "FROM document WHERE case_id = ?";
+            try (PreparedStatement docPs = conn.prepareStatement(docSql)) {
+                docPs.setInt(1, caseId);
+                try (ResultSet rs = docPs.executeQuery()) {
+                    if (rs.next()) {
+                        features.totalDocsSubmitted = rs.getInt("total");
+                        features.verifiedDocsCount = rs.getInt("verified");
+                        features.expiredDocsCount = rs.getInt("expired");
+                        features.hasUnverifiedDocs = rs.getInt("unverified") > 0 ? 1 : 0;
+                    }
+                }
+            }
+            return features;
+        }
+    }
+
+    /**
+     * Fetches all case IDs from the database for batch processing.
+     *
+     * @return list of all case ids
+     * @throws SQLException when the query fails
+     */
+    public List<Integer> getAllCaseIds() throws SQLException {
+        String sql = "SELECT case_id FROM onboarding_case ORDER BY case_id";
+        List<Integer> caseIds = new ArrayList<>();
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    caseIds.add(rs.getInt("case_id"));
+                }
+            }
+        }
+        return caseIds;
+    }
+
+    /**
+     * Fetches case IDs for cases not yet CLOSED, for batch ML prediction on
+     * server startup (CLOSED cases have a final outcome, no need to re-predict).
+     *
+     * @return list of non-CLOSED case ids
+     * @throws SQLException when the query fails
+     */
+    public List<Integer> getOpenCaseIds() throws SQLException {
+        String sql = "SELECT case_id FROM onboarding_case WHERE case_status <> 'CLOSED' ORDER BY case_id";
+        List<Integer> caseIds = new ArrayList<>();
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    caseIds.add(rs.getInt("case_id"));
+                }
+            }
+        }
+        return caseIds;
+    }
+
+    /**
+     * Persists the latest ML approval prediction for a case.
+     *
+     * @param caseId          target case id
+     * @param decision        predicted decision, "APPROVED" or "REJECTED"
+     * @param probability     predicted probability of approval, 0-1
+     * @param recommendations JSON array of DiCE counterfactual suggestions
+     *                        (only meaningful when decision is "REJECTED"), or null
+     * @throws SQLException when persistence fails
+     */
+    public void saveMlPrediction(int caseId, String decision, double probability, String recommendations)
+            throws SQLException {
+        String sql = "UPDATE onboarding_case SET ml_prediction = ?, ml_approval_probability = ?, " +
+                "ml_recommendations = ?, ml_predicted_at = CURRENT_TIMESTAMP WHERE case_id = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, decision);
+            ps.setDouble(2, probability);
+            ps.setString(3, recommendations);
+            ps.setInt(4, caseId);
+            ps.executeUpdate();
+            logger.info("ML prediction saved: caseId={} decision={} probability={}", caseId, decision, probability);
         }
     }
 }
