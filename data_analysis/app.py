@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+from collections import Counter
 from typing import List, Optional
 
 import dice_ml
@@ -15,15 +16,17 @@ import seaborn as sns
 import shap
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
 
 logger = logging.getLogger(__name__)
 
-# Called by the Java backend (service.MLPredictionService) on: case open,
-# document submission, document verification. Never called directly by the
-# frontend. All paths are relative to this file's directory so it can be
-# started from any working directory (see run instructions in README).
+# /predict-and-explain is called by the Java backend (service.MLPredictionService)
+# on: case open, document submission, document verification. The /eval and
+# /explain plot endpoints are called directly by the frontend admin dashboard.
+# All paths are relative to this file's directory so it can be started from
+# any working directory (see run instructions in README).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.environ.get("KYC_MODEL_PATH", os.path.join(BASE_DIR, "kyc_model.pkl"))
 TRAIN_DATA_PATH = os.environ.get("KYC_TRAIN_DATA_PATH", os.path.join(BASE_DIR, "kyc_train_data.pkl"))
@@ -41,7 +44,43 @@ ACTIONABLE_FEATURES = [
     "annual_income_band_encoded",
 ]
 
+# Plain-language labels so dashboard plots read as business terms, not raw
+# column/encoding names, for compliance officers who aren't data scientists.
+FEATURE_LABELS = {
+    "age": "Client age",
+    "adverse_media_hits": "Adverse media hits",
+    "is_pep": "Politically exposed person (PEP)",
+    "is_cross_border": "Cross-border address",
+    "total_docs_submitted": "Documents submitted",
+    "verified_docs_count": "Verified documents",
+    "expired_docs_count": "Expired documents",
+    "has_unverified_docs": "Has unverified documents",
+    "annual_income_band_encoded": "Declared income band",
+    "jurisdiction_risk_encoded": "Jurisdiction risk level",
+    "nationality": "Nationality",
+    "product_type": "Product type",
+    "client_type": "Client type",
+    "main_source_of_funds": "Source of funds",
+}
+
+
+def _friendly_feature_name(name: str) -> str:
+    if name in FEATURE_LABELS:
+        return FEATURE_LABELS[name]
+    base, _, suffix = name.rpartition("_")
+    if base in FEATURE_LABELS and suffix:
+        return f"{FEATURE_LABELS[base]}: {suffix}"
+    return name.replace("_", " ").title()
+
 app = FastAPI(title="KYC ML & XAI Engine")
+
+# Allows the Vite dev server (frontend admin dashboard) to fetch plots directly.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.environ.get("KYC_CORS_ORIGINS", "http://localhost:5173").split(","),
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 # Add exception handler for validation errors to log raw request details
 @app.exception_handler(RequestValidationError)
@@ -238,7 +277,7 @@ def feature_importance_plot():
     """Debugging endpoint mirroring the "Top N Features by Information Gain"
     bar plot from analysis.ipynb. Not called by the Java backend."""
     raw_names = preprocessor.get_feature_names_out()
-    clean_names = [name.split("__")[-1] for name in raw_names]
+    clean_names = [_friendly_feature_name(name.split("__")[-1]) for name in raw_names]
     importances = clf.booster_.feature_importance(importance_type="gain")
 
     importance_df = (
@@ -247,9 +286,11 @@ def feature_importance_plot():
         .head(10)
     )
 
-    fig, ax = plt.subplots(figsize=(9, 5))
+    fig, ax = plt.subplots(figsize=(10, 6))
     sns.barplot(data=importance_df, x="Gain", y="Feature", hue="Feature", legend=False, palette="viridis", ax=ax)
-    ax.set_title("Top 10 Features by Information Gain")
+    ax.set_title("What Drives Approval Decisions Most")
+    ax.set_xlabel("Relative influence on the decision")
+    ax.set_ylabel("")
     fig.tight_layout()
     return {"feature_importance_plot": plot_to_base64(fig)}
 
@@ -265,19 +306,19 @@ def confusion_matrix_plot():
     y_pred = pipeline.predict(X_test)
     cm = confusion_matrix(y_test, y_pred)
 
-    fig, ax = plt.subplots(figsize=(6, 5))
+    fig, ax = plt.subplots(figsize=(7, 6))
     sns.heatmap(
         cm,
         annot=True,
         fmt="d",
         cmap="Blues",
-        xticklabels=["REJECTED", "APPROVED"],
-        yticklabels=["REJECTED", "APPROVED"],
+        xticklabels=["Rejected", "Approved"],
+        yticklabels=["Rejected", "Approved"],
         ax=ax,
     )
-    ax.set_title("Confusion Matrix")
-    ax.set_ylabel("Actual Status")
-    ax.set_xlabel("Predicted Status")
+    ax.set_title("How Often the AI Gets It Right")
+    ax.set_ylabel("Actual outcome")
+    ax.set_xlabel("AI decision")
     fig.tight_layout()
     return {"confusion_matrix_plot": plot_to_base64(fig)}
 
@@ -293,17 +334,88 @@ def roc_curve_plot():
     fpr, tpr, _ = roc_curve(y_test, y_proba)
     roc_auc = roc_auc_score(y_test, y_proba)
 
-    fig, ax = plt.subplots(figsize=(6, 5))
-    ax.plot(fpr, tpr, color="darkorange", lw=2, label=f"ROC (AUC = {roc_auc:.3f})")
-    ax.plot([0, 1], [0, 1], color="navy", linestyle="--")
+    fig, ax = plt.subplots(figsize=(7, 6))
+    ax.plot(fpr, tpr, color="darkorange", lw=2, label=f"Overall reliability score: {roc_auc:.0%}")
+    ax.plot([0, 1], [0, 1], color="navy", linestyle="--", label="No better than a coin flip")
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])
-    ax.set_xlabel("False Positive Rate")
-    ax.set_ylabel("True Positive Rate")
-    ax.set_title("ROC Curve")
+    ax.set_xlabel("Rate of wrongly approving risky clients")
+    ax.set_ylabel("Rate of correctly approving good clients")
+    ax.set_title("How Reliable Is the Model")
     ax.legend(loc="lower right")
     fig.tight_layout()
     return {"roc_curve_plot": plot_to_base64(fig)}
+
+
+@app.get("/api/v1/eval/approval-rate-plot")
+def approval_rate_plot():
+    """Bar chart of historical APPROVED vs REJECTED case counts, across
+    whatever labelled data is available (train + test if persisted)."""
+    y_all = pd.concat([y_train, y_test]) if y_test is not None else y_train
+    counts = y_all.value_counts().reindex([0, 1]).fillna(0)
+    total = counts.sum()
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    bars = ax.bar(["Rejected", "Approved"], counts.values, color=["#ef4444", "#22c55e"])
+    for bar, value in zip(bars, counts.values):
+        pct = (value / total * 100) if total else 0
+        ax.text(bar.get_x() + bar.get_width() / 2, value, f"{int(value)} ({pct:.1f}%)", ha="center", va="bottom", fontweight="bold")
+    ax.set_title("Overall Approval Rate (Historical Cases)")
+    ax.set_ylabel("Number of cases")
+    fig.tight_layout()
+    return {"approval_rate_plot": plot_to_base64(fig)}
+
+
+@app.get("/api/v1/eval/probability-distribution-plot")
+def probability_distribution_plot():
+    """Histogram of the AI's predicted approval probability, showing how
+    confident it typically is (used on the test split if available)."""
+    data_X = X_test if X_test is not None else X_train
+    proba = pipeline.predict_proba(data_X)[:, 1]
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.hist(proba, bins=20, color="#3b82f6", edgecolor="white")
+    ax.axvline(0.5, color="#ef4444", linestyle="--", label="Approve / reject cut-off")
+    ax.set_title("How Confident Is the AI in Its Decisions")
+    ax.set_xlabel("Predicted chance of approval")
+    ax.set_ylabel("Number of cases")
+    ax.legend()
+    fig.tight_layout()
+    return {"probability_distribution_plot": plot_to_base64(fig)}
+
+
+@app.get("/api/v1/eval/top-rejection-factors-plot")
+def top_rejection_factors_plot(sample_size: int = 15):
+    """Runs DiCE over a sample of rejected test-split cases and tallies which
+    actionable fields most often needed to change to flip the decision -
+    i.e. the most common real-world reasons behind rejections."""
+    if X_test is None or y_test is None:
+        raise HTTPException(status_code=404, detail="No test data persisted in kyc_train_data.pkl")
+
+    rejected_idx = y_test[y_test == 0].index[:sample_size]
+    if len(rejected_idx) == 0:
+        raise HTTPException(status_code=404, detail="No rejected cases found in test data")
+
+    counter = Counter()
+    for idx in rejected_idx:
+        recs = _generate_recommendations(X_test.loc[[idx]])
+        if recs:
+            counter.update(r.feature for r in recs)
+
+    if not counter:
+        raise HTTPException(status_code=404, detail="No actionable recommendations found for sampled cases")
+
+    items = counter.most_common()
+    labels = [_friendly_feature_name(name) for name, _ in items]
+    values = [count for _, count in items]
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    sns.barplot(x=values, y=labels, hue=labels, legend=False, palette="rocket", ax=ax)
+    ax.set_title("Most Common Reasons Behind Rejections")
+    ax.set_xlabel(f"Rejected cases affected (of {len(rejected_idx)} sampled)")
+    ax.set_ylabel("")
+    fig.tight_layout()
+    return {"top_rejection_factors_plot": plot_to_base64(fig)}
 
 
 if __name__ == "__main__":

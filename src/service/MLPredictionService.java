@@ -110,6 +110,24 @@ public class MLPredictionService {
     }
 
     /**
+     * Predicts every case not yet CLOSED. Run once on server startup so
+     * predictions are already populated for officers instead of only
+     * appearing after a case-mutating action (open/document submit/verify).
+     */
+    public void predictOpenCases() {
+        try {
+            List<Integer> openCaseIds = caseRepository.getOpenCaseIds();
+            logger.info("Starting startup batch prediction for {} non-CLOSED cases...", openCaseIds.size());
+            for (int caseId : openCaseIds) {
+                predictAndSave(caseId);
+            }
+            logger.info("Startup batch prediction finished.");
+        } catch (SQLException e) {
+            logger.warn("Startup batch prediction failed: reason={}", e.getMessage());
+        }
+    }
+
+    /**
      * Serializes case features into the JSON body expected by the FastAPI
      * /api/v1/predict-and-explain endpoint.
      *

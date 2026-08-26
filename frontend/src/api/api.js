@@ -1,6 +1,9 @@
 // Thin wrapper around the KYC relay server REST API.
 // Base URL can be overridden with VITE_API_BASE_URL at build time.
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+// FastAPI ML/XAI service (data_analysis/app.py), called directly from the
+// browser for the model diagnostic plots - not proxied by the Java backend.
+const ML_BASE_URL = import.meta.env.VITE_ML_SERVICE_URL || 'http://localhost:8000';
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -10,6 +13,15 @@ async function request(path, options = {}) {
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error(data?.error || `Request failed: ${res.status}`);
+  }
+  return data;
+}
+
+async function mlRequest(path) {
+  const res = await fetch(`${ML_BASE_URL}${path}`);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.detail || `Request failed: ${res.status}`);
   }
   return data;
 }
@@ -99,4 +111,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+};
+
+// Model diagnostic plots (base64 PNG data URLs) served by the FastAPI ML
+// service - used by AdminDashboardPage's "Model Performance" section.
+export const mlApi = {
+  getFeatureImportancePlot: () =>
+    mlRequest('/api/v1/explain/feature-importance-plot').then((d) => d.feature_importance_plot),
+  getConfusionMatrixPlot: () =>
+    mlRequest('/api/v1/eval/confusion-matrix-plot').then((d) => d.confusion_matrix_plot),
+  getRocCurvePlot: () => mlRequest('/api/v1/eval/roc-curve-plot').then((d) => d.roc_curve_plot),
+  getApprovalRatePlot: () =>
+    mlRequest('/api/v1/eval/approval-rate-plot').then((d) => d.approval_rate_plot),
+  getProbabilityDistributionPlot: () =>
+    mlRequest('/api/v1/eval/probability-distribution-plot').then((d) => d.probability_distribution_plot),
+  getTopRejectionFactorsPlot: () =>
+    mlRequest('/api/v1/eval/top-rejection-factors-plot').then((d) => d.top_rejection_factors_plot),
 };

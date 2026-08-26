@@ -10,3 +10,6 @@ shap
 dice-ml
 matplotlib
 seaborn
+faker
+sqlalchemy
+pymysql

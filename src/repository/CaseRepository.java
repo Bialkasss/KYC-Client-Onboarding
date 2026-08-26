@@ -276,7 +276,7 @@ public class CaseRepository {
 
     public List<String> listCases(String statusFilter, Integer officerFilter) throws SQLException {
         String sql = "SELECT oc.case_id, oc.client_id, oc.opened_date, oc.product_type, oc.case_status, " +
-                "oc.due_date, oc.assigned_officer_id, co.full_name AS officer_name, " +
+                "oc.due_date, oc.assigned_officer_id, oc.ml_prediction, co.full_name AS officer_name, " +
                 "c.full_name AS client_name, c.client_type, c.status AS client_status " +
                 "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
                 "LEFT JOIN compliance_officer co ON oc.assigned_officer_id = co.officer_id";
@@ -320,7 +320,8 @@ public class CaseRepository {
                             + "\"opened_date\":\"" + rs.getString("opened_date") + "\","
                             + "\"due_date\":" + DatabaseConnection.jsonStringOrNull(rs.getString("due_date")) + ","
                             + "\"assigned_officer_id\":" + (hasOfficer ? officerId : "null") + ","
-                            + "\"officer_name\":" + DatabaseConnection.jsonStringOrNull(rs.getString("officer_name"))
+                            + "\"officer_name\":" + DatabaseConnection.jsonStringOrNull(rs.getString("officer_name")) + ","
+                            + "\"ml_prediction\":" + DatabaseConnection.jsonStringOrNull(rs.getString("ml_prediction"))
                             + "}";
                     list.add(json);
                 }
@@ -411,7 +412,7 @@ public class CaseRepository {
     public List<String> listCasesPaginated(String statusFilter, Integer officerFilter, int offset, int limit)
             throws SQLException {
         String sql = "SELECT oc.case_id, oc.client_id, oc.opened_date, oc.product_type, oc.case_status, " +
-                "oc.due_date, oc.assigned_officer_id, co.full_name AS officer_name, " +
+                "oc.due_date, oc.assigned_officer_id, oc.ml_prediction, co.full_name AS officer_name, " +
                 "c.full_name AS client_name, c.client_type, c.status AS client_status " +
                 "FROM onboarding_case oc JOIN client c ON oc.client_id = c.client_id " +
                 "LEFT JOIN compliance_officer co ON oc.assigned_officer_id = co.officer_id";
@@ -459,7 +460,8 @@ public class CaseRepository {
                             + "\"opened_date\":\"" + rs.getString("opened_date") + "\","
                             + "\"due_date\":" + DatabaseConnection.jsonStringOrNull(rs.getString("due_date")) + ","
                             + "\"assigned_officer_id\":" + (hasOfficer ? officerId : "null") + ","
-                            + "\"officer_name\":" + DatabaseConnection.jsonStringOrNull(rs.getString("officer_name"))
+                            + "\"officer_name\":" + DatabaseConnection.jsonStringOrNull(rs.getString("officer_name")) + ","
+                            + "\"ml_prediction\":" + DatabaseConnection.jsonStringOrNull(rs.getString("ml_prediction"))
                             + "}";
                     list.add(json);
                 }
@@ -750,6 +752,27 @@ public class CaseRepository {
      */
     public List<Integer> getAllCaseIds() throws SQLException {
         String sql = "SELECT case_id FROM onboarding_case ORDER BY case_id";
+        List<Integer> caseIds = new ArrayList<>();
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    caseIds.add(rs.getInt("case_id"));
+                }
+            }
+        }
+        return caseIds;
+    }
+
+    /**
+     * Fetches case IDs for cases not yet CLOSED, for batch ML prediction on
+     * server startup (CLOSED cases have a final outcome, no need to re-predict).
+     *
+     * @return list of non-CLOSED case ids
+     * @throws SQLException when the query fails
+     */
+    public List<Integer> getOpenCaseIds() throws SQLException {
+        String sql = "SELECT case_id FROM onboarding_case WHERE case_status <> 'CLOSED' ORDER BY case_id";
         List<Integer> caseIds = new ArrayList<>();
         try (Connection conn = DatabaseConnection.getConnection();
                 PreparedStatement ps = conn.prepareStatement(sql)) {
