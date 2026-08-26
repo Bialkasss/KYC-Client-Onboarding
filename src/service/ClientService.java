@@ -2,6 +2,7 @@ package service;
 
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import repository.ClientRepository;
@@ -11,7 +12,27 @@ import repository.ClientRepository;
  */
 public class ClientService {
     private static final Logger logger = LoggerFactory.getLogger(ClientService.class);
+    private static final Set<String> VALID_STATUSES = Set.of("PENDING", "APPROVED", "SUSPENDED", "REJECTED");
     private final ClientRepository clientRepository = new ClientRepository();
+
+    /**
+     * Updates a client's onboarding status.
+     *
+     * @param clientId client id
+     * @param status new status (PENDING/APPROVED/SUSPENDED/REJECTED)
+     * @return true when the client was found and updated
+     * @throws SQLException when persistence fails
+     * @throws IllegalArgumentException when the status is not recognized
+     */
+    public boolean updateStatus(int clientId, String status) throws SQLException {
+        String upper = status == null ? "" : status.toUpperCase();
+        if (!VALID_STATUSES.contains(upper)) {
+            throw new IllegalArgumentException("Invalid client status: " + status);
+        }
+        boolean updated = clientRepository.updateStatus(clientId, upper);
+        logger.info("Client status update: clientId={} status={} updated={}", clientId, upper, updated);
+        return updated;
+    }
 
     /**
      * Creates a client record using request-provided attributes.

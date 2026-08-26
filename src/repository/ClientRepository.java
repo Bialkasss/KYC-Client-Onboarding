@@ -51,6 +51,28 @@ public class ClientRepository {
     }
 
     /**
+     * Updates a client's onboarding status.
+     *
+     * @param clientId client id
+     * @param status new status
+     * @return true when a row was updated
+     * @throws SQLException when the update fails
+     */
+    public boolean updateStatus(int clientId, String status) throws SQLException {
+        String sql = "UPDATE client SET status = ? WHERE client_id = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, status);
+            ps.setInt(2, clientId);
+            int updated = ps.executeUpdate();
+            if (updated > 0) {
+                logger.info("Client status updated: clientId={} status={}", clientId, status);
+            }
+            return updated > 0;
+        }
+    }
+
+    /**
      * Lists a summary of all clients.
      *
      * @return list of client JSON fragments
