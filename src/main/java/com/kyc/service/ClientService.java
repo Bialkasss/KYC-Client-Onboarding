@@ -1,99 +1,71 @@
-package service;
+package com.example.service;
 
-import java.sql.SQLException;
+import com.example.dto.ClientSummaryView;
+import com.example.dto.ExpiringDocumentView;
+import com.example.model.Client;
+import com.example.repository.ClientRepository;
+import java.time.LocalDate;
 import java.util.List;
-import java.util.Set;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import repository.ClientRepository;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Business logic for client operations.
- */
+@Slf4j
+@Service
+@RequiredArgsConstructor
 public class ClientService {
-    private static final Logger logger = LoggerFactory.getLogger(ClientService.class);
-    private static final Set<String> VALID_STATUSES = Set.of("PENDING", "APPROVED", "SUSPENDED", "REJECTED");
-    private final ClientRepository clientRepository = new ClientRepository();
 
-    /**
-     * Updates a client's onboarding status.
-     *
-     * @param clientId client id
-     * @param status new status (PENDING/APPROVED/SUSPENDED/REJECTED)
-     * @return true when the client was found and updated
-     * @throws SQLException when persistence fails
-     * @throws IllegalArgumentException when the status is not recognized
-     */
-    public boolean updateStatus(int clientId, String status) throws SQLException {
-        String upper = status == null ? "" : status.toUpperCase();
-        if (!VALID_STATUSES.contains(upper)) {
-            throw new IllegalArgumentException("Invalid client status: " + status);
+    private final ClientRepository clientRepository;
+
+    @Transactional
+    public Client createClient(Client client) {
+        Client saved = clientRepository.save(client);
+        log.info("Client created: clientId={} clientType={} status={}",
+                saved.getClientId(), saved.getClientType(), saved.getStatus());
+        return saved;
+    }
+
+    @Transactional
+    public boolean updateStatus(Integer clientId, String status) {
+        int updated = clientRepository.updateStatus(clientId, status);
+        if (updated > 0) {
+            log.info("Client status updated: clientId={} status={}", clientId, status);
+            return true;
         }
-        boolean updated = clientRepository.updateStatus(clientId, upper);
-        logger.info("Client status update: clientId={} status={} updated={}", clientId, upper, updated);
-        return updated;
+        return false;
     }
 
-    /**
-     * Creates a client record using request-provided attributes.
-     *
-     * @param fullName client full name
-     * @param clientType client type
-     * @param nationality nationality code
-     * @param countryOfBirth country of birth code
-     * @param dateOfBirth date of birth in yyyy-MM-dd format
-     * @param taxResidency tax residency code
-     * @param status onboarding status
-     * @param isActive active flag
-     * @return newly created client id
-     * @throws SQLException when persistence fails
-     */
-    public int createClient(String fullName, String clientType, String nationality, String countryOfBirth,
-                            String dateOfBirth, String taxResidency, String status, boolean isActive)
-            throws SQLException {
-        int clientId = clientRepository.createClient(fullName, clientType, nationality, countryOfBirth, dateOfBirth,
-                taxResidency, status, isActive);
-        logger.info("Client created: clientId={} clientType={} status={}", clientId, clientType, status);
-        return clientId;
+    @Transactional(readOnly = true)
+    public List<ClientSummaryView> listClients() {
+        return clientRepository.findAllSummaries();
     }
 
-    /**
-     * Lists a summary of all clients.
-     *
-     * @return JSON array of client summaries
-     * @throws SQLException when the query fails
-     */
-    public String listClients() throws SQLException {
-        List<String> clients = clientRepository.listClients();
-        logger.debug("Listed clients: count={}", clients.size());
-        return "[\n" + String.join(",\n", clients) + "\n]";
+    @Transactional(readOnly = true)
+    public List<Client> listClients() {
+        return clientRepository.findAll();
     }
 
-    /**
-     * Lists documents expiring within the given number of days.
-     *
-     * @param days lookahead window in days
-     * @return JSON array of expiring documents
-     * @throws SQLException when the query fails
-     */
-    public String listExpiringDocuments(int days) throws SQLException {
-        List<String> docs = clientRepository.listExpiringDocuments(days);
-        logger.debug("Listed expiring documents: days={} count={}", days, docs.size());
-        return "[\n" + String.join(",\n", docs) + "\n]";
-    }
-
-    /**
-     * Fetches the full record for a client.
-     *
-     * @param id client id
-     * @return client JSON representation, or null when not found
-     * @throws SQLException when the query fails
-     */
-    public String getClientById(int id) throws SQLException {
-        String json = clientRepository.getClientById(id);
-        if (json == null) {
-            logger.warn("Client lookup failed: clientId={} reason=not found", id);
+    @Transactional(readOnly = true)
+    public Optional<Client> getClientById(Integer id) {
+        Optional<Client> client = clientRepository.findById(id);
+        if (client.isEmpty()) {
+            log.debug("Client not found: clientId={}", id);
         }
-        return json;
+        return client;
+    }
+
+    @Transactional(readOnly = true)
+    public List<ExpiringDocumentView> listExpiringDocuments(int days) {
+        LocalDate today = LocalDate.now();
+        LocalDate endDate = today.plusDays(days);
+        List<ExpiringDocumentView> docs = clientRepository.findExpiringDocuments(today, endDate);
+
+        docs.forEach(doc -> log.warn(
+                "Document expiring in {} days: clientId={} docType={} expiry={}",
+                days, doc.getClientId(), doc.getDocType(), doc.getExpiryDate()));
+
+        return docs;
     }
 }
